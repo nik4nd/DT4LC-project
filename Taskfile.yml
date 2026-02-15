@@ -1,0 +1,390 @@
+# https://taskfile.dev
+version: '3'
+
+vars:
+  PYTHON_VERSION: '3.10'
+  PROJECT_NAME: dt4lc-project
+  VENV_DIR: .venv
+  SRC_TARGET_DIRS: .
+
+env:
+  VIRTUAL_ENV: '{{.VENV_DIR}}'
+
+tasks:
+  # =============================================================================
+  # Environment Setup
+  # =============================================================================
+
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  venv:
+    desc: Create virtual environment with Python {{.PYTHON_VERSION}}
+    cmds:
+      - |
+        command -v uv >/dev/null 2>&1 || (echo "Error: uv not found. Install: curl -LsSf https://astral.sh/uv/install.sh | sh" && exit 1)
+        uv venv {{.VENV_DIR}} --python {{.PYTHON_VERSION}}
+        echo "Virtual environment created. Activate with: source {{.VENV_DIR}}/bin/activate"
+    status:
+      - test -f {{.VENV_DIR}}/pyvenv.cfg
+
+  install:
+    desc: Install project in editable mode with all dependencies
+    deps: [venv]
+    cmds:
+      - uv pip install -e .[dev,server]
+      - echo "Installation complete."
+
+  sync:
+    desc: Sync environment with pyproject.toml
+    deps: [venv]
+    cmds:
+      - uv pip install -e .[dev,server]
+      - echo "Environment synced."
+
+  # =============================================================================
+  # Code Quality
+  # =============================================================================
+
+  lint:
+    desc: Run ruff linter
+    deps: [venv]
+    cmds:
+      - uv run ruff check {{.SRC_TARGET_DIRS}}
+
+  lint:fix:
+    desc: Run ruff linter with auto-fix
+    deps: [venv]
+    cmds:
+      - uv run ruff check {{.SRC_TARGET_DIRS}} --fix
+
+  format:
+    desc: Format code with ruff
+    deps: [venv]
+    cmds:
+      - uv run ruff format {{.SRC_TARGET_DIRS}}
+      - uv run ruff check {{.SRC_TARGET_DIRS}} --fix --exit-zero
+
+  format:check:
+    desc: Check formatting without making changes
+    deps: [venv]
+    cmds:
+      - uv run ruff format --check {{.SRC_TARGET_DIRS}}
+
+  typecheck:
+    desc: Run mypy type checker
+    deps: [venv]
+    cmds:
+      - uv run mypy .
+
+  # =============================================================================
+  # Testing
+  # =============================================================================
+
+  test:
+    desc: Run all tests
+    deps: [venv]
+    cmds:
+      - uv run pytest
+
+  test:fast:
+    desc: Run tests excluding slow ones
+    deps: [venv]
+    cmds:
+      - uv run pytest -m "not slow"
+
+  test:verbose:
+    desc: Run tests with verbose output
+    deps: [venv]
+    cmds:
+      - uv run pytest -v --tb=long
+
+  test:file:
+    desc: Run tests for a specific file (pass file as argument)
+    deps: [venv]
+    cmds:
+      - uv run pytest {{.CLI_ARGS}}
+
+  test:watch:
+    desc: Run tests in watch mode
+    deps: [venv]
+    cmds:
+      - uv run pytest-watch -- -v --tb=short
+
+  coverage:
+    desc: Run tests with coverage and open HTML report
+    deps: [venv]
+    cmds:
+      - uv run pytest
+      - python -m webbrowser -t htmlcov/index.html 2>/dev/null || echo "Coverage report at htmlcov/index.html"
+
+  # =============================================================================
+  # Application Commands
+  # =============================================================================
+
+  run:api:
+    desc: Run FastAPI server
+    deps: [venv]
+    cmds:
+      - uv run dt4lc-api
+
+  run:api:dev:
+    desc: Run FastAPI server with hot reload
+    deps: [venv]
+    cmds:
+      - uv run uvicorn server:app --reload --host 0.0.0.0 --port 8000
+
+  # =============================================================================
+  # Models & Data
+  # =============================================================================
+
+  download:prithvi:
+    desc: Download Prithvi model weights
+    deps: [venv]
+    cmds:
+      - uv run python scripts/download_prithvi.py
+
+  # =============================================================================
+  # Build & Clean
+  # =============================================================================
+
+  build:
+    desc: Build wheel and sdist
+    deps: [venv]
+    cmds:
+      - uv build
+      - ls -l dist/
+
+  clean:
+    desc: Remove build artifacts and caches
+    cmds:
+      - rm -rf dist/ build/ .coverage* htmlcov/
+      - find . -maxdepth 1 -type d -name "*.egg-info" -exec rm -rf {} + -print
+      - find . -type d -name "__pycache__" -exec rm -rf {} + -print
+      - find . -type d -name ".pytest_cache" -exec rm -rf {} + -print
+      - find . -type d -name ".mypy_cache" -exec rm -rf {} + -print
+      - find . -type d -name ".ruff_cache" -exec rm -rf {} + -print
+      - echo "Cleanup complete."
+
+  clean:venv:
+    desc: Remove virtual environment
+    cmds:
+      - rm -rf {{.VENV_DIR}}
+      - echo "Virtual environment removed."
+
+  clean:all:
+    desc: Remove everything (venv + artifacts)
+    cmds:
+      - task: clean
+      - task: clean:venv
+
+  # =============================================================================
+  # CI / All Checks
+  # =============================================================================
+
+  check:
+    desc: Run all quality checks (format, lint, typecheck, test)
+    cmds:
+      - task: format:check
+      - task: lint
+      - task: typecheck
+      - task: test
+
+  ci:
+    desc: Run CI pipeline (same as check)
+    cmds:
+      - task: check
+
+  # =============================================================================
+  # Development Helpers
+  # =============================================================================
+
+  shell:
+    desc: Open Python shell with project loaded
+    deps: [venv]
+    cmds:
+      - uv run python
+
+  ipython:
+    desc: Open IPython shell with project loaded
+    deps: [venv]
+    cmds:
+      - uv run ipython
+
+  repl:
+    desc: Open Python REPL with common imports
+    deps: [venv]
+    cmds:
+      - |
+        uv run python -c "
+        print('Loading DT4LC environment...')
+        from dta.config import ROOT_DIR, TEMP_PATH
+        from dta.dti.registry import load_registry
+        from dta.dti.coe.orchestrator import orchestrate
+        from dta.dti.schemas import ChatRequest
+        print('Available: ROOT_DIR, TEMP_PATH, load_registry, orchestrate, ChatRequest')
+        " -i
+
+  # =============================================================================
+  # Docker Commands
+  # =============================================================================
+
+  docker:build:
+    desc: Build all Docker images
+    cmds:
+      - docker compose build
+
+  docker:up:
+    desc: Start services (frontend + backend, uses cloud LLM providers)
+    cmds:
+      - docker compose up -d
+      - 'echo "Services starting..."'
+      - 'echo "Frontend: http://localhost"'
+      - 'echo "Backend:  http://localhost:8000"'
+      - 'echo "Using cloud LLM providers (Gemini/Groq from .env)"'
+
+  docker:up:ollama:
+    desc: Start all services including Ollama (local LLM)
+    cmds:
+      - docker compose --profile ollama up -d
+      - 'echo "Services starting with Ollama..."'
+      - 'echo "Frontend: http://localhost"'
+      - 'echo "Backend:  http://localhost:8000"'
+      - 'echo "Ollama:   http://localhost:11434"'
+
+  docker:up:build:
+    desc: Build and start services (no Ollama)
+    cmds:
+      - docker compose up -d --build
+      - 'echo "Services starting..."'
+      - 'echo "Frontend: http://localhost"'
+      - 'echo "Backend:  http://localhost:8000"'
+
+  docker:up:build:ollama:
+    desc: Build and start all services including Ollama
+    cmds:
+      - docker compose --profile ollama up -d --build
+      - 'echo "Services starting with Ollama..."'
+      - 'echo "Frontend: http://localhost"'
+      - 'echo "Backend:  http://localhost:8000"'
+      - 'echo "Ollama:   http://localhost:11434"'
+
+  docker:down:
+    desc: Stop all services
+    cmds:
+      - docker compose down
+
+  docker:down:clean:
+    desc: Stop all services and remove volumes
+    cmds:
+      - docker compose down -v
+      - echo "All services stopped and volumes removed."
+
+  docker:logs:
+    desc: Show logs from all services
+    cmds:
+      - docker compose logs -f
+
+  docker:logs:backend:
+    desc: Show backend logs only
+    cmds:
+      - docker compose logs -f backend
+
+  docker:logs:frontend:
+    desc: Show frontend logs only
+    cmds:
+      - docker compose logs -f frontend
+
+  docker:restart:
+    desc: Restart all services
+    cmds:
+      - docker compose restart
+
+  docker:restart:backend:
+    desc: Restart backend service only
+    cmds:
+      - docker compose restart backend
+
+  docker:status:
+    desc: Show status of all services
+    cmds:
+      - docker compose ps
+
+  docker:shell:backend:
+    desc: Open shell in backend container
+    cmds:
+      - docker compose exec backend /bin/bash
+
+  docker:shell:frontend:
+    desc: Open shell in frontend container
+    cmds:
+      - docker compose exec frontend /bin/sh
+
+  docker:prune:
+    desc: Remove unused Docker resources
+    cmds:
+      - docker system prune -f
+      - echo "Unused Docker resources removed."
+
+  # =============================================================================
+  # Frontend Commands
+  # =============================================================================
+
+  frontend:install:
+    desc: Install frontend dependencies
+    dir: cognitive_ui
+    cmds:
+      - npm install
+
+  frontend:dev:
+    desc: Run frontend in development mode
+    dir: cognitive_ui
+    cmds:
+      - npm run dev
+
+  frontend:build:
+    desc: Build frontend for production
+    dir: cognitive_ui
+    cmds:
+      - npm run build
+
+  frontend:preview:
+    desc: Preview production build
+    dir: cognitive_ui
+    cmds:
+      - npm run preview
+
+  frontend:lint:
+    desc: Lint frontend code
+    dir: cognitive_ui
+    cmds:
+      - npm run lint
+
+  # =============================================================================
+  # Full Stack Development
+  # =============================================================================
+
+  dev:
+    desc: Run backend and frontend in development mode (parallel)
+    deps: [venv]
+    cmds:
+      - echo "Starting backend on :8000 and frontend on :5173..."
+      - |
+        trap 'kill 0' EXIT
+        uv run dt4lc-api &
+        cd cognitive_ui && npm run dev &
+        wait
+
+  dev:backend:
+    desc: Run only backend in development mode
+    deps: [venv]
+    cmds:
+      - uv run dt4lc-api
+
+  dev:frontend:
+    desc: Run only frontend in development mode
+    dir: cognitive_ui
+    cmds:
+      - npm run dev

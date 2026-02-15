@@ -8,6 +8,12 @@ __pycache__/
 .venv
 .env
 
+# IDEs
+.vscode/
+.idea/
+.cursor/
+.claude/
+
 # Build
 build/
 dist/
@@ -15,6 +21,28 @@ dist/
 # OS-specific
 .DS_Store
 
-# Project-specific
+# Tests
+.coverage
+.pytest_cache/
+htmlcov
+
+# Project cache - all runtime data consolidated here
+# This includes: models, uploads, temp files
 resources/.cache/
-resources/prithvi_eo_v1_100m/
+
+# Legacy paths (no longer used but kept for safety)
+resources/kahovka_data/*
+
+# Backups
+*.bak
+
+# Logs
+.logs/
+
+# Frontend (Node.js)
+cognitive_ui/node_modules/
+cognitive_ui/dist/
+cognitive_ui/.vite/
+*.log
+npm-debug.log*
+docs/features/

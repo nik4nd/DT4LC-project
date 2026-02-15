@@ -1,0 +1,306 @@
+version: "0.1"
+types:
+ - NDVIMap
+ - NDWIMap  # Water index output
+ - NDSIMap  # Snow index output
+ - SnowClassification  # Multi-criteria snow classification
+ - LULCMap  # Land use / land cover classification
+ - Reconstruction  # Prithvi MAE reconstruction outputs
+ - RasterPath
+ - RasterPathBefore
+ - RasterPathAfter
+ - IndexType  # Type of spectral index (ndvi, ndsi, ndwi)
+ - Statistics
+ - ChangeMap
+ - FieldBoundaries
+
+instances:
+  # Standard single-file input (default for most analyses)
+  - id: input/file
+    kind: input
+    keywords: [file, raster, data, image, input]
+    inputs: []
+    outputs: [RasterPath]
+    runner:
+      type: passthrough
+
+  # Multi-file inputs for change detection only
+  - id: input/file-before
+    kind: input
+    keywords: [before, first, earlier, pre, baseline]
+    inputs: []
+    outputs: [RasterPathBefore]
+    runner:
+      type: passthrough
+
+  - id: input/file-after
+    kind: input
+    keywords: [after, second, later, post, current]
+    inputs: []
+    outputs: [RasterPathAfter]
+    runner:
+      type: passthrough
+
+  - id: algorithms/ndvi
+    kind: algorithm
+    description: |
+      NDVI (Normalized Difference Vegetation Index) for vegetation health analysis.
+      Computed as (NIR - Red) / (NIR + Red). Values range from -1 to 1, where higher
+      values indicate healthier vegetation. Useful for crop monitoring and land cover.
+    interpretation: |
+      NDVI ranges from -1 to 1. Values >0.6 indicate dense, healthy vegetation; 0.4-0.6
+      moderate vegetation cover; 0.2-0.4 sparse vegetation or senescent crops; <0.2 bare
+      soil or stressed vegetation; negative values indicate water, clouds, or snow.
+      Standard deviation reflects landscape heterogeneity.
+    keywords: [ndvi, vegetation, index, health, greenness]
+    inputs: [RasterPath]
+    outputs: [NDVIMap]
+    runner:
+      type: python
+      entrypoint: "dta/dti/algorithms/ndvi.py"
+
+  - id: algorithms/ndwi
+    kind: algorithm
+    description: |
+      NDWI (Normalized Difference Water Index) for water body detection.
+      Computed as (Green - NIR) / (Green + NIR). Positive values indicate water.
+      Useful for mapping lakes, rivers, floods, and wetlands.
+    interpretation: |
+      NDWI ranges from -1 to 1. Values >0.3 indicate open water; 0.0-0.3 possible
+      water or wetland; <0.0 non-water surfaces (vegetation shows negative NDWI).
+      Water percentage indicates proportion of pixels classified as water.
+    keywords: [ndwi, water, index, lake, river, flood, wetland, aquatic, hydrology, moisture]
+    inputs: [RasterPath]
+    outputs: [NDWIMap]
+    runner:
+      type: python
+      entrypoint: "dta/dti/algorithms/ndwi.py"
+
+  - id: algorithms/ndsi
+    kind: algorithm
+    description: |
+      NDSI (Normalized Difference Snow Index) for snow and glacier detection.
+      Computed as (Green - SWIR) / (Green + SWIR). Values above 0.42 typically
+      indicate snow/ice coverage. Useful for glacier monitoring and snow mapping.
+    interpretation: |
+      NDSI ranges from -1 to 1. Values ≥0.4 indicate snow/ice cover; 0.2-0.4 mixed or
+      thin snow; <0.2 snow-free surfaces; negative values typically indicate vegetation.
+      Water bodies may show moderate positive NDSI and require additional masking.
+    keywords: [ndsi, snow, ice, glacier, frozen, winter, alpine, mountain, cryosphere, sentinel, landsat]
+    inputs: [RasterPath]
+    outputs: [NDSIMap]
+    runner:
+      type: python
+      entrypoint: "dta/dti/algorithms/ndsi.py"
+
+  - id: algorithms/snow-classifier
+    kind: algorithm
+    description: |
+      Multi-criteria snow classification for robust snow detection. Combines
+      NDSI (>=0.4), NDVI (~0.1), and brightness (>0.3) thresholds to reduce
+      false positives compared to basic NDSI thresholding. More accurate across
+      varying terrain and atmospheric conditions.
+    interpretation: |
+      Multi-criteria classification combining NDSI ≥0.4, NDVI ≤0.1, and NIR reflectance
+      >0.3. Snow coverage percentage represents proportion of pixels meeting all criteria.
+      This approach reduces commission errors from water bodies and shadows.
+    keywords: [snow, classifier, classification, snow-classifier, snow-classification, ice, glacier, frozen, winter, alpine, mountain, cryosphere, multi-criteria, robust]
+    inputs: [RasterPath]
+    outputs: [SnowClassification]
+    runner:
+      type: python
+      entrypoint: "dta/dti/algorithms/snow_classifier.py"
+
+  - id: algorithms/statistics
+    kind: algorithm
+    description: |
+      Comprehensive raster statistics including min, max, mean, standard deviation,
+      and percentiles for all bands. Generates histograms for data distribution analysis.
+    interpretation: |
+      Band statistics characterize spectral distribution. Standard deviation indicates
+      intra-scene variability; high values suggest heterogeneous land cover. Difference
+      between mean and median reveals distribution skewness. Percentiles help identify
+      outliers and inform histogram stretching for visualization.
+    keywords: [statistics, stats, distribution, histogram, percentiles, analysis]
+    inputs: [RasterPath]
+    outputs: [Statistics]
+    runner:
+      type: python
+      entrypoint: "dta/dti/algorithms/statistics.py"
+
+  - id: algorithms/change-detection
+    kind: algorithm
+    description: |
+      Multi-index change detection comparing two time periods. Supports NDVI (vegetation),
+      NDSI (snow/ice), and NDWI (water) indices. Computes temporal change between before
+      and after images, identifying areas of loss or gain.
+    interpretation: |
+      Index difference (after minus before) quantifies change. Negative values indicate
+      loss (vegetation decline, snow melt, water retreat); positive values indicate gain
+      (vegetation growth, snow accumulation, flooding). Default is NDVI for vegetation.
+      Use IndexType parameter to specify: "ndvi" for vegetation, "ndsi" for snow/ice,
+      "ndwi" for water bodies.
+    keywords: [change, detection, difference, compare, comparison, temporal, before, after, loss, gain, vegetation, snow, water, ndvi, ndsi, ndwi]
+    inputs: [RasterPathBefore, RasterPathAfter, IndexType]
+    outputs: [ChangeMap]
+    runner:
+      type: python
+      entrypoint: "dta/dti/algorithms/change_detection.py"
+
+  - id: algorithms/lulc-classifier
+    kind: algorithm
+    description: |
+      Land Use / Land Cover (LULC) classification using spectral index thresholds.
+      Classifies pixels into Water, Snow/Ice, Bare Soil, Sparse Vegetation,
+      Cropland/Grassland, and Dense Vegetation using NDVI, NDWI, and NDSI indices.
+      Rule-based approach suitable for rapid assessment without training data.
+    interpretation: |
+      Classification based on spectral index thresholds: Water (NDWI>0.2 or NDVI<-0.1 or wet areas),
+      Snow/Ice (NDSI>0.4 with high brightness), Bare Soil (NDVI<0.15, NDWI<-0.1),
+      Sparse Vegetation (0.1≤NDVI<0.3), Cropland/Grassland (0.3≤NDVI<0.5),
+      Dense Vegetation (NDVI≥0.5). Dominant class indicates primary land cover type.
+    keywords: [lulc, land-use, land-cover, classification, classify, classes, water, soil, vegetation, cropland, forest, urban, mapping]
+    inputs: [RasterPath]
+    outputs: [LULCMap]
+    runner:
+      type: python
+      entrypoint: "dta/dti/algorithms/lulc_classifier.py"
+
+  - id: models/prithvi-reconstruction
+    kind: model
+    description: |
+      NASA/IBM Prithvi foundation model for satellite imagery analysis. Uses Masked
+      Autoencoder (MAE) to reconstruct HLS imagery, revealing learned spatial and
+      spectral patterns. Outputs RGB visualizations: original, masked, and predicted
+      (reconstructed) images.
+    interpretation: |
+      Masked Autoencoder reconstructs masked patches using learned representations.
+      Reconstruction quality indicates how well the model captures spatial-spectral patterns.
+      Compare predicted vs original RGB composites to assess feature preservation.
+    keywords: [prithvi, reconstruction, mae, masked, autoencoder, predict, visualize, foundation, hls, geotiff, nasa, ibm]
+    inputs: [RasterPath]
+    outputs: [Reconstruction]
+    model_id: prithvi-eo-v1-100m
+    preprocessors:
+      - id: preprocessors/scale-to-hls
+        apply_to: RasterPath
+    runner:
+      type: python
+      entrypoint: "${MODEL_PATH}/inference.py"
+      function: main
+      args_map:
+        data_files: ["${RasterPath}"]
+        config_path: "${MODEL_PATH}/config.json"
+        checkpoint: "${MODEL_PATH}/Prithvi_EO_V1_100M.pt"
+        output_dir: "${OUTPUT_DIR}"
+        rgb_outputs: true
+        mask_ratio: 0.75
+
+  - id: models/delineate-anything
+    kind: model
+    description: |
+      Delineate-Anything field boundary detection using YOLO-based segmentation.
+      Auto-detects data source (Sentinel/Planet/Maxar) and configures appropriate
+      filtering thresholds. Outputs GeoPackage with field polygons.
+    interpretation: |
+      Field count and total area characterize agricultural parcelization. Mean field size
+      (total_area/num_fields) indicates farming scale: <1 ha suggests smallholder systems;
+      >10 ha indicates mechanized agriculture. Output GeoPackage preserves source CRS.
+    keywords: [delineate, field, boundary, boundaries, agriculture, parcels, segmentation, yolo, extract, detect, farm, crop, plot, land, polygon, vector, outline, edges]
+    inputs: [RasterPath]
+    outputs: [FieldBoundaries]
+    model_id: delineate-anything-small
+    runner:
+      type: python
+      entrypoint: "dta/dti/models/third_party/delineate_anything/inference.py"
+      env:
+        DELINEATE_MODEL: "small"
+
+  - id: post-processing/agent-analysis
+    kind: postprocess
+    keywords: [llm, summarize, analysis]
+    inputs: []  # Agent can work with any available artifacts
+    outputs: []
+    runner:
+      type: agent
+      prompt_template: "prompts/analysis.md"
+
+  # =============================================================================
+  # Preprocessors - Reusable data transformations applied before model execution
+  # =============================================================================
+
+  - id: preprocessors/scale-to-hls
+    kind: preprocessor
+    description: |
+      Scales raster data to HLS (Harmonized Landsat Sentinel) format.
+      Converts 0-1 surface reflectance to 0-10000 HLS scale.
+      Useful for models trained on HLS data (e.g., Prithvi).
+    runner:
+      type: python
+      entrypoint: "dta/dti/preprocessors/scale_to_hls.py"
+      function: run
+
+  # =============================================================================
+  # Hosted Models (DT4LC Team) - Models hosted on external platforms
+  # =============================================================================
+  # These are core DT4LC models developed by the team but hosted externally.
+  # Integration status: planned -> active -> deprecated
+
+  - id: models/ndvi-convlstm
+    kind: model
+    keywords: [ndvi, forecast, prediction, convlstm, lstm, deep-learning, vegetation, health, greenness, time-series, temporal, ukraine, agriculture, crop, monitoring, satellite, remote-sensing]
+    description: |
+      ConvLSTM NDVI Forecasting Model - Predicts vegetation health in Ukrainian
+      agricultural regions. Uses 6 weeks of input data to forecast 4 future weeks
+      of NDVI values. Trained on Cherkasy, Vinnytsia, and Mykolaiv oblasts (2018-2021).
+    inputs: [NDVITimeSeries, WeatherData, TerrainData, SoilData]
+    outputs: [NDVIForecast]
+    integration:
+      type: huggingface-spaces
+      url: "https://huggingface.co/spaces/LordZeee/ndvi-convlstm"
+      status: planned
+    metadata:
+      team: "DT4LC"
+      author: "LordZeee"
+      hosting: "huggingface"
+      features: 20
+
+  - id: models/pinn-linda
+    kind: model
+    keywords: [pinn, physics-informed, neural-network, deep-learning, precipitation, rain, nowcasting, weather, forecast, prediction, linda, lagrangian, radar, meteorology, short-term, real-time]
+    description: |
+      PINN-LINDA Weather Nowcasting - Physics-Informed Neural Network implementing
+      LINDA (Lagrangian Integro-Difference equation with Nowcasting and Data Assimilation)
+      for short-term precipitation forecasting. Compares traditional LINDA with PINN-enhanced
+      approaches using radar precipitation sequences.
+    inputs: [RadarSequence, ForecastConfig]
+    outputs: [PrecipitationForecast]
+    integration:
+      type: huggingface-spaces
+      url: "https://huggingface.co/spaces/yaotj/swissdt"
+      status: planned
+    metadata:
+      team: "DT4LC"
+      author: "yaotj"
+      hosting: "huggingface"
+      framework: "gradio"
+      source_code: "https://github.com/4rste1f/DT4LC-project/tree/master/digital_twin/pinn_gradio"
+
+  - id: models/vi-forecasting-dti
+    kind: model
+    keywords: [vegetation, index, ndvi, evi, savi, forecast, prediction, time-series, temporal, earth-engine, gee, satellite, remote-sensing, agriculture, crop, monitoring, cloud-computing]
+    description: |
+      Vegetation Index Forecasting DTI - Time-series forecasting model for
+      vegetation indices using Google Earth Engine integration.
+    inputs: [RasterPath, TimeRange]
+    outputs: [VIForecast]
+    integration:
+      type: google-earth-engine
+      url: "https://ee-sofidrozd13.projects.earthengine.app/view/viforecastingdti"
+      status: planned
+      requires: ["earthengine-api"]
+    metadata:
+      team: "DT4LC"
+      author: "sofidrozd13"
+      hosting: "gee"
+      platform: "Google Earth Engine"
