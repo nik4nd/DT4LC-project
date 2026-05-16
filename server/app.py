@@ -17,8 +17,17 @@ configure_logging()
 
 # Imports below must follow load_dotenv() and configure_logging() so submodules see the
 # populated environment and root logger config when initialised at import time.
-from fastapi import FastAPI  # noqa: E402
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from dta.dti.executor import (
+    ExecutionError,
+    MissingInputError,
+    ModelNotInstalledError,
+)
 
 from .jobs import get_job_queue  # noqa: E402
 from .model_routes import router as model_router  # noqa: E402
@@ -28,6 +37,7 @@ from .routes.gee import router as gee_router  # noqa: E402
 from .routes.health import router as health_router  # noqa: E402
 from .routes.jobs import router as jobs_router  # noqa: E402
 from .routes.tiles import router as tiles_router  # noqa: E402
+from .schemas import ErrorCode, ErrorDetail, ErrorResponse
 
 
 @asynccontextmanager
@@ -50,6 +60,79 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(StarletteHTTPException)  # type: ignore[misc]
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    code = ErrorCode.INTERNAL_ERROR
+    if exc.status_code == 404:
+        code = ErrorCode.NOT_FOUND
+    elif exc.status_code == 400:
+        code = ErrorCode.BAD_REQUEST
+    elif exc.status_code == 401:
+        code = ErrorCode.UNAUTHORIZED
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=ErrorResponse(error=ErrorDetail(code=code, message=str(exc.detail))).model_dump(),
+    )
+
+
+@app.exception_handler(RequestValidationError)  # type: ignore[misc]
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=ErrorResponse(
+            error=ErrorDetail(
+                code=ErrorCode.VALIDATION_ERROR, message="Validation error", details={"errors": exc.errors()}
+            )
+        ).model_dump(),
+    )
+
+
+@app.exception_handler(MissingInputError)  # type: ignore[misc]
+async def missing_input_exception_handler(request: Request, exc: MissingInputError) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content=ErrorResponse(
+            error=ErrorDetail(
+                code=ErrorCode.MISSING_INPUT,
+                message=str(exc),
+                details={"step_id": exc.step_id, "input_type": exc.input_type},
+            )
+        ).model_dump(),
+    )
+
+
+@app.exception_handler(ModelNotInstalledError)  # type: ignore[misc]
+async def model_not_installed_exception_handler(request: Request, exc: ModelNotInstalledError) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content=ErrorResponse(
+            error=ErrorDetail(
+                code=ErrorCode.MODEL_NOT_INSTALLED,
+                message=(
+                    f"This analysis requires the {exc.model_name} model "
+                    f"({exc.size_mb} MB). Would you like to download it?"
+                ),
+                details={
+                    "model_id": exc.model_id,
+                    "model_name": exc.model_name,
+                    "size_mb": exc.size_mb,
+                    "description": exc.description,
+                },
+            )
+        ).model_dump(),
+    )
+
+
+@app.exception_handler(ExecutionError)  # type: ignore[misc]
+async def execution_exception_handler(request: Request, exc: ExecutionError) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content=ErrorResponse(error=ErrorDetail(code=ErrorCode.INTERNAL_ERROR, message=str(exc))).model_dump(),
+    )
+
 
 app.include_router(health_router)
 app.include_router(chat_router)

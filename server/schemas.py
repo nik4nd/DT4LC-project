@@ -4,8 +4,8 @@ Defines request/response models for the REST API endpoints including
 job submission, chat messages, and file attachments.
 """
 
+from enum import Enum
 from typing import Any, Literal
-
 from pydantic import BaseModel
 
 # Re-export Attachment from domain schemas to avoid duplication
@@ -16,12 +16,42 @@ __all__ = [
     "ChatMessage",
     "ChatRequest",
     "CreateJobRequest",
+    "ErrorCode",
+    "ErrorDetail",
+    "ErrorResponse",
     "JobStatus",
     "JobSubmitRequest",
     "Plan",
 ]
 
 Role = Literal["user", "assistant"]
+
+
+class ErrorCode(str, Enum):
+    """Standardized error codes for the API."""
+
+    VALIDATION_ERROR = "validation_error"
+    MISSING_INPUT = "missing_input"
+    MODEL_NOT_INSTALLED = "model_not_installed"
+    INTERNAL_ERROR = "internal_error"
+    NOT_FOUND = "not_found"
+    BAD_REQUEST = "bad_request"
+    UNAUTHORIZED = "unauthorized"
+
+
+class ErrorDetail(BaseModel):  # type: ignore[misc]
+    """Details of the error."""
+
+    code: ErrorCode
+    message: str
+    details: dict[str, Any] | None = None
+
+
+class ErrorResponse(BaseModel):  # type: ignore[misc]
+    """Standardized error response schema."""
+
+    ok: Literal[False] = False
+    error: ErrorDetail
 
 
 class ChatMessage(BaseModel):  # type: ignore[misc]
