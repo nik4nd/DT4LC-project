@@ -66,7 +66,7 @@ async def fetch_sentinel2_data(
         raise HTTPException(status_code=500, detail=f"Failed to fetch data: {str(e)}") from e
 
 
-@router.post("/modis")  # type: ignore[misc]
+@router.post("/modis", response_model=dict[str, Any])  # type: ignore[misc]
 async def fetch_modis_data(
     bbox: list[float],
     start_date: str,
@@ -120,7 +120,7 @@ async def fetch_modis_data(
         raise HTTPException(status_code=500, detail=f"Failed to fetch data: {str(e)}") from e
 
 
-@router.post("/landsat")  # type: ignore[misc]
+@router.post("/landsat", response_model=dict[str, Any])  # type: ignore[misc]
 async def fetch_landsat_data(
     bbox: list[float],
     start_date: str,
@@ -174,7 +174,7 @@ async def fetch_landsat_data(
         raise HTTPException(status_code=500, detail=f"Failed to fetch data: {str(e)}") from e
 
 
-@router.post("/bulk-fetch")  # type: ignore[misc]
+@router.post("/bulk-fetch", response_model=dict[str, Any])  # type: ignore[misc]
 async def bulk_fetch_datasets(request: dict[str, Any]) -> JSONResponse:
     """Bulk fetch multiple bands and indices for pre/post periods.
 
@@ -271,7 +271,7 @@ async def bulk_fetch_datasets(request: dict[str, Any]) -> JSONResponse:
         raise HTTPException(status_code=500, detail=f"Failed to bulk fetch data: {str(e)}") from e
 
 
-@router.get("/datasets")  # type: ignore[misc]
+@router.get("/datasets", response_model=dict[str, Any])  # type: ignore[misc]
 async def list_available_datasets() -> JSONResponse:
     """List all available GEE datasets with metadata.
 
@@ -314,7 +314,7 @@ async def list_available_datasets() -> JSONResponse:
     return JSONResponse({"ok": True, "datasets": datasets})
 
 
-@router.post("/layers/persist")  # type: ignore[misc]
+@router.post("/layers/persist", response_model=dict[str, Any])  # type: ignore[misc]
 async def persist_layer_metadata(request: dict[str, Any]) -> JSONResponse:
     """Persist layer metadata for future export and chat context.
 
@@ -371,7 +371,7 @@ async def persist_layer_metadata(request: dict[str, Any]) -> JSONResponse:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/layers/{layer_id}/export")  # type: ignore[misc]
+@router.post("/layers/{layer_id}/export", response_model=dict[str, Any])  # type: ignore[misc]
 async def export_layer_for_analysis(
     layer_id: str,
     scale: int = Query(10, description="Resolution in meters"),
@@ -585,7 +585,7 @@ async def export_layer_for_analysis(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/layers")  # type: ignore[misc]
+@router.get("/layers", response_model=dict[str, Any])  # type: ignore[misc]
 async def list_persisted_layers() -> JSONResponse:
     """List all persisted GEE layers.
 
@@ -603,7 +603,7 @@ async def list_persisted_layers() -> JSONResponse:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.delete("/layers/{layer_id}")  # type: ignore[misc]
+@router.delete("/layers/{layer_id}", response_model=dict[str, Any])  # type: ignore[misc]
 async def delete_persisted_layer(layer_id: str) -> JSONResponse:
     """Delete persisted layer metadata.
 
