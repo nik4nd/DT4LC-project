@@ -10,18 +10,23 @@ from dta.dti.metrics import get_metrics_collector
 from dta.dti.models.registry import get_model_registry
 from dta.dti.registry import load_registry
 
+from ..schemas import CapabilitiesResponse, HealthResponse, MetricsResponse
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["health"])
 
 
-@router.get("/health")  # type: ignore[misc]
+@router.get("/health", response_model=HealthResponse)  # type: ignore[misc]
 async def health() -> dict[str, Any]:
-    """Health check endpoint."""
+    """Health check endpoint.
+
+    Returns the current operational status and version of the API.
+    """
     return {"ok": True, "service": "DT4LC", "version": "1.0.0"}
 
 
-@router.get("/capabilities")  # type: ignore[misc]
+@router.get("/capabilities", response_model=CapabilitiesResponse)  # type: ignore[misc]
 async def list_capabilities() -> JSONResponse:
     """List all available components from the registry.
 
@@ -45,37 +50,37 @@ async def list_capabilities() -> JSONResponse:
 async def list_models() -> JSONResponse:
     """List all registered models from the model registry.
 
-    Returns model information including requirements, availability,
-    descriptions, author info, and source URLs.
+    Returns model information including requirements, availability, and metadata.
     """
     try:
         registry = get_model_registry()
         models = []
 
-        # List ALL models from Python registry
-        for model_id in registry.list_all():
-            req = registry.check_requirements(model_id)
-            models.append(req)
+        for model_id, model in registry._models.items():
+            models.append(
+                {
+                    "id": model_id,
+                    "name": model.name,
+                    "installed": model.installed,
+                    "size_mb": model.size_mb,
+                    "description": model.description,
+                    "requires": model.requires,
+                }
+            )
 
-        # Also include hosted models from YAML registry (models with integration field)
         try:
-            yaml_registry = load_registry()
-            for item in yaml_registry.instances:
-                if item.kind == "model" and item.integration:
+            base_registry = load_registry()
+            for item in base_registry.instances:
+                if item.type == "model" and item.metadata.get("hosting") != "local":
                     models.append(
                         {
-                            "model_id": item.id,
-                            "name": item.id.split("/")[-1].replace("-", " ").title(),
-                            "description": item.description or "",
-                            "author": item.metadata.get("author", ""),
-                            "source_url": item.integration.url,
-                            "available": item.integration.status == "active",
-                            "missing_requirements": item.integration.requires
-                            if item.integration.status == "planned"
-                            else [],
-                            "gpu_required": False,
-                            "integration_type": item.integration.type,
-                            "integration_status": item.integration.status,
+                            "id": item.id,
+                            "name": item.name,
+                            "installed": item.integration.status == "ready",
+                            "size_mb": 0,
+                            "description": item.description,
+                            "requires": [],
+                            "status": item.integration.status,
                             "keywords": item.keywords,
                             "hosting": item.metadata.get("hosting", "external"),
                             "team": item.metadata.get("team", ""),
@@ -89,7 +94,7 @@ async def list_models() -> JSONResponse:
         raise HTTPException(status_code=500, detail=f"Failed to load models: {e}") from e
 
 
-@router.get("/metrics")  # type: ignore[misc]
+@router.get("/metrics", response_model=MetricsResponse)  # type: ignore[misc]
 async def get_metrics() -> JSONResponse:
     """Get system metrics including execution and LLM stats."""
     try:

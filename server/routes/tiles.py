@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/tiles", tags=["tiles"])
 
 
-@router.get("/{z}/{x}/{y}")  # type: ignore[misc]
+@router.get("/{z}/{x}/{y}", response_class=StreamingResponse)  # type: ignore[misc]
 async def get_tile(
     z: int, x: int, y: int, path: str = Query(..., description="Path to GeoTIFF file")
 ) -> StreamingResponse:

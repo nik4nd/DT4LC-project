@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/gee", tags=["gee"])
 
 
-@router.post("/sentinel2")  # type: ignore[misc]
+@router.post("/sentinel2", response_model=dict[str, Any])  # type: ignore[misc]
 async def fetch_sentinel2_data(
     bbox: list[float],
     start_date: str,
@@ -629,7 +629,7 @@ async def delete_persisted_layer(layer_id: str) -> JSONResponse:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/dates")  # type: ignore[misc]
+@router.get("/dates", response_model=dict[str, Any])  # type: ignore[misc]
 async def get_sentinel2_dates(
     bbox: list[float] = Query(..., description="Bounding box [minX, minY, maxX, maxY]"),  # noqa: B008
     start_date: str = Query(..., description="Start date YYYY-MM-DD"),

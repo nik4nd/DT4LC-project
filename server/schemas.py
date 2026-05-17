@@ -22,6 +22,11 @@ __all__ = [
     "JobStatus",
     "JobSubmitRequest",
     "Plan",
+    "HealthResponse",
+    "CapabilitiesResponse",
+    "JobListResponse",
+    "MetricsResponse",
+    "UploadResponse",
 ]
 
 Role = Literal["user", "assistant"]
@@ -101,3 +106,51 @@ class JobStatus(BaseModel):  # type: ignore[misc]
     message: str | None = None
     result: dict[str, Any] | None = None
     error: str | None = None
+
+
+class HealthResponse(BaseModel):  # type: ignore[misc]
+    """Response schema for the health check endpoint."""
+
+    ok: bool = True
+    service: str = "DT4LC"
+    version: str = "1.0.0"
+
+
+class CapabilitiesResponse(BaseModel):  # type: ignore[misc]
+    """Response schema for listing registry capabilities."""
+
+    version: str
+    types: list[str]
+    instances: list[dict[str, Any]]
+    count: int
+
+
+class JobListResponse(BaseModel):  # type: ignore[misc]
+    """Response schema for a paginated list of background jobs."""
+
+    jobs: list[dict[str, Any]]
+    total: int
+    limit: int
+    offset: int
+
+
+class MetricsResponse(BaseModel):  # type: ignore[misc]
+    """Response schema for system execution and LLM metrics."""
+
+    total_executions: int
+    successful_executions: int
+    failed_executions: int
+    average_duration_seconds: float
+    total_llm_calls: int
+    total_llm_tokens: int
+    total_llm_cost: float
+    llm_by_provider: dict[str, Any]
+
+
+class UploadResponse(BaseModel):  # type: ignore[misc]
+    """Response schema for a successful GeoTIFF file upload."""
+
+    ok: bool = True
+    filename: str
+    path: str
+    size_bytes: int

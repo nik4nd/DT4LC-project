@@ -9,6 +9,7 @@ import uuid
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
 import numpy as np
 from PIL import Image
 from rasterio.io import MemoryFile
@@ -20,8 +21,46 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["files"])
 
 
-@router.post("/upload")  # type: ignore[misc]
+class UploadResponseModel(BaseModel):  # type: ignore[misc]
+    """Response model for successful file upload."""
+
+    id: str
+    filename: str
+    path: str
+    size: list[int]
+    crs: str | None = None
+    bounds: list[float]
+    preview_png_base64: str
+
+
+class FileItemModel(BaseModel):  # type: ignore[misc]
+    """Metadata for a single GeoTIFF file."""
+
+    id: str
+    filename: str
+    path: str
+    size: list[int]
+    crs: str | None = None
+    bounds: list[float]
+    size_bytes: int
+    source: str
+    modified: float
+
+
+class FileListResponseModel(BaseModel):  # type: ignore[misc]
+    """Response model for listing files."""
+
+    ok: bool = True
+    files: list[FileItemModel]
+    count: int
+
+
+@router.post("/upload", response_model=UploadResponseModel)  # type: ignore[misc]
 async def upload_geotiff(file: UploadFile = File) -> JSONResponse:
+    """Upload a GeoTIFF file.
+
+    Validates the file, saves it to the uploads directory, and generates a base64 PNG preview.
+    """
     # Basic checks
     if not file.filename or not file.filename.lower().endswith((".tif", ".tiff")):
         raise HTTPException(status_code=400, detail="Please upload a .tif/.tiff GeoTIFF.")
@@ -55,36 +94,29 @@ async def upload_geotiff(file: UploadFile = File) -> JSONResponse:
     # Read in-memory with rasterio for preview
     try:
         with MemoryFile(raw) as mem, mem.open() as src:
-            # Read first band as masked array
-            band1 = src.read(1, masked=True)  # (H, W) masked ndarray
+            band1 = src.read(1, masked=True)
             h, w = band1.shape
-            bounds = src.bounds  # left, bottom, right, top
+            bounds = src.bounds
             crs = src.crs.to_string() if src.crs else None
 
-            # Simple percentile stretch to 8-bit for preview
-            # Convert to float FIRST, then fill with NaN (can't fill uint8 with NaN)
             data = band1.astype("float64").filled(np.nan)
             finite = np.isfinite(data)
             if not finite.any():
                 raise HTTPException(status_code=400, detail="All pixels are nodata.")
 
-            # percentiles on finite pixels only
             p2, p98 = np.percentile(data[finite], [2, 98])
             if not np.isfinite(p2) or not np.isfinite(p98) or p98 <= p2:
                 p2, p98 = float(np.nanmin(data[finite])), float(np.nanmax(data[finite]))
 
-            # Handle edge case where p2 == p98
             if p98 - p2 < 1e-10:
                 scaled = np.zeros_like(data)
             else:
                 scaled = (data - p2) / (p98 - p2)
 
-            # Replace NaN/inf with 0 BEFORE converting to uint8
             scaled = np.nan_to_num(scaled, nan=0.0, posinf=1.0, neginf=0.0)
             scaled = np.clip(scaled, 0.0, 1.0)
             scaled = (scaled * 255.0 + 0.5).astype("uint8")
 
-            # Convert to PNG (grayscale, mode "L")
             img = Image.fromarray(scaled, mode="L")
             buf = io.BytesIO()
             img.save(buf, format="PNG")
@@ -94,21 +126,20 @@ async def upload_geotiff(file: UploadFile = File) -> JSONResponse:
             {
                 "id": file_id,
                 "filename": file.filename,
-                "path": str(saved_path),  # File path for use in execution
+                "path": str(saved_path),
                 "size": [int(w), int(h)],
                 "crs": crs,
                 "bounds": [bounds.left, bounds.bottom, bounds.right, bounds.top],
-                "preview_png_base64": b64,  # data:image/png;base64,<this>
+                "preview_png_base64": b64,
             }
         )
     except Exception as e:
-        # Clean up saved file on error
         if saved_path.exists():
             saved_path.unlink()
         raise HTTPException(status_code=400, detail=f"Failed to read GeoTIFF: {e}") from e
 
 
-@router.get("/files")  # type: ignore[misc]
+@router.get("/files", response_model=FileListResponseModel)  # type: ignore[misc]
 async def list_files() -> JSONResponse:
     """List all available GeoTIFF files (uploaded and exported).
 
@@ -117,7 +148,6 @@ async def list_files() -> JSONResponse:
     """
     try:
         import rasterio
-
         from dta.config import CACHE_PATH
 
         files = []
@@ -176,13 +206,7 @@ async def list_files() -> JSONResponse:
                     logger.warning(f"Failed to read file {file_path}: {e}")
                     continue
 
-        # Sort by modification time (newest first)
         files.sort(key=lambda x: float(x["modified"]), reverse=True)  # type: ignore[arg-type]
-
-        num_uploads = len([f for f in files if f["source"] == "upload"])
-        num_exports = len([f for f in files if f["source"] == "export"])
-        logger.info(f"Listed {len(files)} files ({num_uploads} uploads, {num_exports} exports)")
-
         return JSONResponse({"ok": True, "files": files, "count": len(files)})
 
     except Exception as e:
@@ -190,7 +214,7 @@ async def list_files() -> JSONResponse:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/download")  # type: ignore[misc]
+@router.get("/download", response_class=FileResponse)  # type: ignore[misc]
 async def download_file(path: str) -> FileResponse:
     """Download a file from the server.
 
@@ -203,15 +227,12 @@ async def download_file(path: str) -> FileResponse:
         File response with appropriate content type
     """
     file_path = Path(path)
-
-    # Security: Only allow downloads from specific directories
     allowed_dirs = [
         Path(tempfile.gettempdir()) / "dt4lc_delineate",
         UPLOAD_DIR,
         Path(tempfile.gettempdir()),
     ]
 
-    # Check if path is under an allowed directory
     is_allowed = False
     for allowed_dir in allowed_dirs:
         try:
@@ -227,7 +248,6 @@ async def download_file(path: str) -> FileResponse:
     if not file_path.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {path}")
 
-    # Determine content type based on extension
     suffix = file_path.suffix.lower()
     content_types = {
         ".gpkg": "application/geopackage+sqlite3",
