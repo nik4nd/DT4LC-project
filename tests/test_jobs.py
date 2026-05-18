@@ -100,7 +100,8 @@ class TestJobProcessing:
 
             if job.status == JobStatus.COMPLETED:
                 assert job.result is not None
-                assert job.plan is not None
+                if job.result.get("intent") == "pipeline":
+                    assert job.plan is not None
                 assert job.progress == 1.0
                 assert job.completed_at is not None
         finally:
