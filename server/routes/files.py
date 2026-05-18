@@ -21,7 +21,15 @@ router = APIRouter(prefix="/v1", tags=["files"])
 
 
 @router.post("/upload")  # type: ignore[misc]
-async def upload_geotiff(file: UploadFile = File) -> JSONResponse:
+async def upload_geotiff(file: UploadFile = File(...)) -> JSONResponse:
+    """Upload a GeoTIFF file for analysis.
+
+    Args:
+        file: The GeoTIFF file to upload (.tif or .tiff).
+
+    Returns:
+        JSON response with file ID, path, and metadata including a preview.
+    """
     # Basic checks
     if not file.filename or not file.filename.lower().endswith((".tif", ".tiff")):
         return JSONResponse(
