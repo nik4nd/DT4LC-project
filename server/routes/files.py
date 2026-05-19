@@ -271,7 +271,7 @@ async def list_files() -> JSONResponse:
         )
 
 
-@router.get("/download")  # type: ignore[misc]
+@router.get("/download", response_model=None)  # type: ignore[misc]
 async def download_file(path: str) -> FileResponse | JSONResponse:
     """Download a file from the server.
 
